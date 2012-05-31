@@ -21,6 +21,7 @@ public class CimClassWrapper implements Comparable<CimClassWrapper>, CimProperti
     };
     
     private CIMClass cimClass;
+    private CimClassWrapper parent;
     private List<CimClassWrapper> cimChildren = Collections.emptyList();
     
     public CimClassWrapper(CIMClass cimClass) {
@@ -44,8 +45,9 @@ public class CimClassWrapper implements Comparable<CimClassWrapper>, CimProperti
         cimChildren = new ArrayList<CimClassWrapper>();
       }
       cimChildren.add(cimClassNode);
+      cimClassNode.setParent(this);
     }
-    
+
     public List<CimClassWrapper> getCimChildren() {
       return cimChildren;
     }
@@ -75,5 +77,13 @@ public class CimClassWrapper implements Comparable<CimClassWrapper>, CimProperti
     @Override
     public CIMProperty[] getProperties() {
       return cimClass.getProperties();
+    }
+    
+    private void setParent(CimClassWrapper parent) {
+      this.parent = parent;
+    }
+    
+    public String getFullPath() {
+      return parent != null ? parent.getFullPath() + "/" + getName() : getName();
     }
   }

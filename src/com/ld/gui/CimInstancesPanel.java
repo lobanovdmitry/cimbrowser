@@ -38,12 +38,13 @@ public class CimInstancesPanel extends JPanel implements
   private static final long serialVersionUID = 1L;
   private static final CimInstanceWrapper[] EMPTY_INSTANCES_LIST = new CimInstanceWrapper[0];
 
-  private CimBrowserMgr mainMgr;
   private JButton refreshButton = new JButton("Refresh...");
+  private JDialog lockDialog = null;
   private JList instancesList = new JList();
+  
+  private CimBrowserMgr mainMgr;
   private CimInstanceDescriptionPanel instancesDescription;
   private CimClassWrapper selectedCimClass = CimClassWrapper.ROOT;
-  private JDialog lockDialog = null;
   
   public CimInstancesPanel(final CimBrowserMgr mainMgr) {
     this.mainMgr = mainMgr;

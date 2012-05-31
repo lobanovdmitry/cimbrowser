@@ -1,18 +1,16 @@
 package com.ld.gui;
 
-import java.awt.Component;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
-import java.beans.PropertyChangeListener;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Stack;
+import java.util.Set;
 
-import javax.swing.ImageIcon;
 import javax.swing.JButton;
 import javax.swing.JDialog;
 import javax.swing.JOptionPane;
@@ -23,12 +21,11 @@ import javax.swing.JTree;
 import javax.swing.event.TreeSelectionEvent;
 import javax.swing.event.TreeSelectionListener;
 import javax.swing.tree.DefaultMutableTreeNode;
-import javax.swing.tree.DefaultTreeCellRenderer;
 import javax.swing.tree.DefaultTreeSelectionModel;
-import javax.swing.tree.RowMapper;
 import javax.swing.tree.TreePath;
 import javax.swing.tree.TreeSelectionModel;
 
+import com.ld.gui.events.FilterChangedEvent;
 import com.ld.gui.generic.GuiUtils;
 import com.ld.gui.generic.GuiUtils.FormBuilder;
 import com.ld.kernel.CimSessionHolder;
@@ -52,13 +49,15 @@ public class CimClassesTreePanel extends JPanel implements
 
   private static final String ROOT_CLASS_NAME = "";
   private static final long serialVersionUID = 1L;
-  private static String SEARCH_BUTTON = "Search";
+  private static String FILTER_BUTTON = "  Filter  ";
+  private static String RELEASE_BUTTON = "Release";
   
   private DefaultMutableTreeNode root = new DefaultMutableTreeNode(CimClassWrapper.ROOT, true);
   private Map<String, DefaultMutableTreeNode> nodes = new HashMap<String, DefaultMutableTreeNode >();
   private JTree classesTree = new JTree(root);
   private JTextField searchField = new JTextField();
-  private JButton searchButton = new JButton(SEARCH_BUTTON);
+  private JButton filterButton = new JButton(FILTER_BUTTON);
+  private JButton releaseButton = new JButton(RELEASE_BUTTON);
   
   private CimSessionHolder sessionHolder;
   private CimClassesTreeStorage storage = CimClassesTreeStorage.EMPTY;
@@ -85,10 +84,11 @@ public class CimClassesTreePanel extends JPanel implements
     if ( RequestStatus.SUCCESS == result.getStatus() ){
       storage = new CimClassesTreeStorage(classes);
       storage.process();
-      addAllChildren(root, storage.getUnderRootNodes());
+      addAllChildren(root, storage.getUnderRootNodes());//fill tree with all classes
     }
-    classesTree.collapsePath(new TreePath(root));
-    classesTree.repaint();
+    TreePath rootPath = new TreePath(root.getPath());
+    classesTree.expandPath(rootPath);
+    classesTree.updateUI();
   }
 
   @Override
@@ -101,27 +101,7 @@ public class CimClassesTreePanel extends JPanel implements
     enumerateClassesForTree();
     lockPanel();
   }
-
-  private void selectClassAtTree(CimClassWrapper foundClass) {
-    TreePath path = getTreePathForClass(foundClass);
-    classesTree.setSelectionPath(path);
-    classesTree.scrollRowToVisible(classesTree.getRowForPath(path));
-  }
   
-  private TreePath getTreePathForClass(CimClassWrapper foundClass) {
-    Stack<DefaultMutableTreeNode> stack = new Stack<DefaultMutableTreeNode>();
-    for(CimClassWrapper node = foundClass; node != null; node = storage.getParent(node)) {
-      stack.push(nodes.get(node.getName()));
-    }
-    DefaultMutableTreeNode[] nodes = new DefaultMutableTreeNode[stack.size() + 1];
-    int i = 0;
-    nodes[i++] = root;
-    while (!stack.isEmpty()) {
-      nodes[i++] = stack.pop();      
-    }
-    return new TreePath(nodes);
-  }
-
   private void lockPanel() {
     if ( lockDialog == null ) {
       lockDialog = GuiUtils.createWaitWindow(GuiMgr.getMgr(mainMgr).getMainFrame());
@@ -135,6 +115,7 @@ public class CimClassesTreePanel extends JPanel implements
   
   private void initTree() {
     initLayout();
+    classesTree.setShowsRootHandles(true);
     classesTree.addTreeSelectionListener(new TreeSelectionListener() {
       @Override
       public void valueChanged(TreeSelectionEvent event) {
@@ -147,7 +128,7 @@ public class CimClassesTreePanel extends JPanel implements
             new SingleCimClassSelectionEvent((CimClassWrapper)treeNode.getUserObject()));
       }
     });
-    classesTree.setCellRenderer(new CimNodeRenderer());
+    classesTree.setCellRenderer(new CimNodeRenderer(EventMgr.getMgr(mainMgr)));
     TreeSelectionModel model = new DefaultTreeSelectionModel();
     model.setSelectionMode(TreeSelectionModel.SINGLE_TREE_SELECTION);
     classesTree.setSelectionModel(model);
@@ -155,7 +136,7 @@ public class CimClassesTreePanel extends JPanel implements
 
   private void initLayout() {
     GridBagLayout gridBagLayout = new GridBagLayout();
-    JPanel searchPanel = createSearchPanel();
+    JPanel searchPanel = createFilterPanel();
     JScrollPane paneForTree = GuiUtils.createScrollPane(classesTree);
     gridBagLayout.addLayoutComponent(searchPanel, 
         new GridBagConstraints(0, 0, 1, 1, 1, 0,
@@ -169,23 +150,63 @@ public class CimClassesTreePanel extends JPanel implements
   }
   
   private void initButtons() {
-    searchButton.addActionListener(new ActionListener() {
+    filterButton.addActionListener(new ActionListener() {
       
       @Override
       public void actionPerformed(ActionEvent event) {
-        String textToSearch = searchField.getText();
-        CimClassWrapper foundClass = storage.findClass(textToSearch);
-        if ( foundClass != null) {
-          selectClassAtTree(foundClass);
+        String targetClassName = searchField.getText();
+        if ( targetClassName.isEmpty() ) {
+          return;
         }
+        root.removeAllChildren();
+        Map<DefaultMutableTreeNode, Set<DefaultMutableTreeNode>> filteredNodes = new HashMap<DefaultMutableTreeNode, Set<DefaultMutableTreeNode>>();
+        for ( Map.Entry<String, DefaultMutableTreeNode> mapEntry : nodes.entrySet() ) {
+          if ( mapEntry.getKey().contains(targetClassName) ) {
+            DefaultMutableTreeNode underRootNode = nodes.get(mapEntry.getKey().split("/")[0]);
+            Set<DefaultMutableTreeNode> nodesToExpand = filteredNodes.get(underRootNode);
+            if ( nodesToExpand == null ) {
+              nodesToExpand = new HashSet<DefaultMutableTreeNode>();
+            }
+            String[] classesNamesInPath = mapEntry.getKey().split("/");
+            DefaultMutableTreeNode targetNode = mapEntry.getValue();
+            for (int i = classesNamesInPath.length - 1; i > -1; i-- ) {
+              if ( targetNode.getUserObject().toString().contains(targetClassName) ) {
+                nodesToExpand.add(targetNode);
+              } else {
+                targetNode = (DefaultMutableTreeNode) targetNode.getParent();
+              }
+            }
+            filteredNodes.put(underRootNode, nodesToExpand);
+          }
+        }
+        for ( Map.Entry<DefaultMutableTreeNode, Set<DefaultMutableTreeNode>> filteredNode : filteredNodes.entrySet() ) {
+          root.add(filteredNode.getKey());
+          for ( DefaultMutableTreeNode nodeToExpand : filteredNode.getValue() ){
+            classesTree.expandPath(new TreePath(nodeToExpand.getPath()));
+          }
+        }
+        EventMgr.getMgr(mainMgr).dispatch(new FilterChangedEvent(targetClassName));
+        classesTree.updateUI();
+      }
+    });
+    
+    releaseButton.addActionListener(new ActionListener() {
+      
+      @Override
+      public void actionPerformed(ActionEvent arg0) {
+        root.removeAllChildren();
+        addAllChildren(root, storage.getUnderRootNodes());//fill tree with all classes
+        EventMgr.getMgr(mainMgr).dispatch(new FilterChangedEvent(""));
+        classesTree.updateUI();
       }
     });
   }
 
-  private JPanel createSearchPanel() {
+  private JPanel createFilterPanel() {
     FormBuilder formBuilder = new FormBuilder();
     formBuilder.addComponent(searchField, true);
-    formBuilder.addComponent(searchButton, false);
+    formBuilder.addComponent(filterButton, false);
+    formBuilder.addComponent(releaseButton, false);
     return formBuilder.build();
   }
   
@@ -193,14 +214,14 @@ public class CimClassesTreePanel extends JPanel implements
     sessionHolder.enumerateClasses(ROOT_CLASS_NAME);
   }
 
-  private void addAllChildren(DefaultMutableTreeNode node, List<CimClassWrapper> children) {
+  private void addAllChildren(DefaultMutableTreeNode parentNode, List<CimClassWrapper> children) {
     Collections.sort(children);
     for ( CimClassWrapper child : children ) {
-      DefaultMutableTreeNode treeNode = new DefaultMutableTreeNode(child);
-      node.add(treeNode);
-      nodes.put(child.getName(), treeNode);
+      DefaultMutableTreeNode childNode = new DefaultMutableTreeNode(child);
+      parentNode.add(childNode);
+      nodes.put(child.getFullPath(), childNode);
       if (!child.isLeaf()) {
-        addAllChildren(treeNode, child.getCimChildren());
+        addAllChildren(childNode, child.getCimChildren());
       }
     }
   }
@@ -209,42 +230,9 @@ public class CimClassesTreePanel extends JPanel implements
     root.removeAllChildren();
     nodes.clear();
     storage = CimClassesTreeStorage.EMPTY;
-  }
-  
-  public class CimNodeRenderer extends DefaultTreeCellRenderer {
-    private static final long serialVersionUID = 1L;
-    private ImageIcon iconLockedRoot = GuiUtils.createImageIcon("./resources/images/lockedRoot.png");
-    private ImageIcon iconUnlockedRoot = GuiUtils.createImageIcon("./resources/images/unlockedRoot.png");
-    private ImageIcon iconKeyed = GuiUtils.createImageIcon("./resources/images/password.png");
-    private ImageIcon iconMiddle = GuiUtils.createImageIcon("./resources/images/assoc.png");
-    private ImageIcon iconKeyAndAssoc = GuiUtils.createImageIcon("./resources/images/blockdevice.png");
-    private ImageIcon iconAssoc = GuiUtils.createImageIcon("./resources/images/middle.gif");
-    
-    @Override
-    public Component getTreeCellRendererComponent( JTree tree,
-        Object value, boolean sel, boolean expanded, boolean leaf,
-        int row, boolean hasFocus) {
-      super.getTreeCellRendererComponent(tree, value, sel, expanded, leaf, row, hasFocus);
-      DefaultMutableTreeNode treeNode = (DefaultMutableTreeNode) value;
-      CimClassWrapper cimClass = (CimClassWrapper)treeNode.getUserObject();
-      if ( cimClass == CimClassWrapper.ROOT && leaf) {
-        setIcon(iconLockedRoot);
-      } else
-      if ( cimClass == CimClassWrapper.ROOT && !leaf) {
-        setIcon(iconUnlockedRoot);
-      } else
-      if (!cimClass.isKeyed() && !cimClass.isAssociation()) {
-        setIcon(iconMiddle);
-      } else 
-      if (cimClass.isKeyed() && !cimClass.isAssociation()) {
-        setIcon(iconKeyed);
-      } else
-      if (!cimClass.isKeyed() && cimClass.isAssociation()) {
-        setIcon(iconAssoc);
-      } else {
-        setIcon(iconKeyAndAssoc);
-      }
-      return this;
-    }
+//    TreePath rootPath = new TreePath(root.getPath());
+//    classesTree.setSelectionPath(rootPath);
+//    classesTree.scrollPathToVisible(rootPath);
+    classesTree.updateUI();
   }
 }
