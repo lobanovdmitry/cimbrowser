@@ -110,7 +110,7 @@ public class CimSessionHolder {
           boolean pIncludeQualifiers = true;
           CloseableIterator iteratorWithInstances = null;
           try {
-            iteratorWithInstances = wbemClient.enumerateInstances(new CIMObjectPath(className, namespace), pDeep, pPropagated, pIncludeQualifiers, new String[0]);
+            iteratorWithInstances = wbemClient.enumerateInstances(new CIMObjectPath(className, namespace), pDeep, pPropagated, pIncludeQualifiers, null);
             while (iteratorWithInstances.hasNext()) {
               instances.add(new CimInstanceWrapper((CIMInstance) iteratorWithInstances.next()));
             }

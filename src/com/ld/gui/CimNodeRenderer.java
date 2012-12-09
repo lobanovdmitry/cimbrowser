@@ -5,7 +5,6 @@ import java.awt.Component;
 
 import javax.swing.ImageIcon;
 import javax.swing.JTree;
-import javax.swing.border.Border;
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeCellRenderer;
 

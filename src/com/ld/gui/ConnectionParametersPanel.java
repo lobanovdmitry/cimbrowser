@@ -124,6 +124,7 @@ public class ConnectionParametersPanel {
         } catch (Exception e) {
           JOptionPane.showMessageDialog(null, "Error during connection: " + e.getMessage(), "Error!", JOptionPane.ERROR_MESSAGE);
           eventMgr.dispatch(new CimClassesTreeUpdatedByRequestEvent(new RequestResult(RequestStatus.FAIL)));
+          e.printStackTrace();
         }
         eventMgr.dispatch(new CimSessionChangedEvent());
       }
